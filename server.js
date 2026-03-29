@@ -31,6 +31,7 @@ app.post('/users', async (req, res) => {
 app.get('/users', async (req, res) => {
     try {
         const db = await connectDb();
+        console.log('[DEBUG] Fetching all users');
         const users = await db.collection('users').find({}).toArray();
         res.json(users);
     } catch (err) {
