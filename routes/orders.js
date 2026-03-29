@@ -3,11 +3,31 @@ const router = express.Router();
 const connectDb = require('../db');
 const { ObjectId } = require('mongodb');
 
-// GET /orders/seller/:sellerID — all orders for a seller, customer name populated
-router.get('/seller/:sellerID', async (req, res) => {
+// GET /orders/seller/:userMongoId — all orders for a seller
+// :userMongoId is the user's _id (stored as aiva_mongo_id in WordPress)
+router.get('/seller/:userMongoId', async (req, res) => {
     try {
         const db = await connectDb();
-        const filter = { sellerID: req.params.sellerID };
+
+        // Step 1: find the seller doc whose sellerID = the user's _id
+        // sellerID in sellers collection may be stored as ObjectId or string — try both
+        let seller = null;
+        try {
+            seller = await db.collection('sellers').findOne({
+                sellerID: new ObjectId(req.params.userMongoId)
+            });
+        } catch(e) {}
+
+        if (!seller) {
+            seller = await db.collection('sellers').findOne({
+                sellerID: req.params.userMongoId
+            });
+        }
+
+        if (!seller) return res.json([]);
+
+        // Step 2: fetch orders where sellerID = seller._id (ObjectId)
+        const filter = { sellerID: seller._id };
         if (req.query.status) filter.status = req.query.status;
 
         const orders = await db.collection('orders')
@@ -15,17 +35,31 @@ router.get('/seller/:sellerID', async (req, res) => {
             .sort({ createdAt: -1 })
             .toArray();
 
-        // Populate customer name via users collection
+        // Step 3: populate customerName
+        // orders.customerID → customers._id → customers.customerID → users._id → users.name
         const populated = await Promise.all(orders.map(async (order) => {
             let customerName = 'Unknown';
             try {
                 if (order.customerID) {
-                    const user = await db.collection('users').findOne({
-                        _id: new ObjectId(order.customerID)
+                    const customer = await db.collection('customers').findOne({
+                        _id: order.customerID  // already an ObjectId ref
                     });
-                    if (user) customerName = user.name;
+                    if (customer && customer.customerID) {
+                        let user = null;
+                        try {
+                            user = await db.collection('users').findOne({
+                                _id: new ObjectId(customer.customerID)
+                            });
+                        } catch(e) {}
+                        if (!user) {
+                            user = await db.collection('users').findOne({
+                                _id: customer.customerID
+                            });
+                        }
+                        if (user) customerName = user.name;
+                    }
                 }
-            } catch (e) { /* invalid ObjectId — leave as Unknown */ }
+            } catch (e) { /* leave as Unknown */ }
 
             return { ...order, _id: order._id.toString(), customerName };
         }));
@@ -48,10 +82,18 @@ router.put('/:orderID/status', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid status' });
         }
 
-        const result = await db.collection('orders').updateOne(
-            { orderID: req.params.orderID },
-            { $set: { status } }
-        );
+        let result;
+        try {
+            result = await db.collection('orders').updateOne(
+                { _id: new ObjectId(req.params.orderID) },
+                { $set: { status } }
+            );
+        } catch(e) {
+            result = await db.collection('orders').updateOne(
+                { orderID: req.params.orderID },
+                { $set: { status } }
+            );
+        }
 
         res.json({ success: true, modifiedCount: result.modifiedCount });
     } catch (err) {
