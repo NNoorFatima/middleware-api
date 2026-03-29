@@ -5,6 +5,7 @@ require('dotenv').config();
 const usersRouter = require('./routes/users');
 const sellersRouter = require('./routes/sellers');
 const customersRouter = require('./routes/customers');
+const inventoriesRouter = require('./routes/inventory');
 
 const app = express();
 app.use(cors());
@@ -22,6 +23,7 @@ app.use((req, res, next) => {
 app.use('/users', usersRouter);
 app.use('/sellers', sellersRouter);
 app.use('/customers', customersRouter);
+app.use('/inventory', inventoriesRouter);
 
 app.get('/', (req, res) => res.send('Middleware API running'));
 
