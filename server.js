@@ -27,14 +27,32 @@ app.post('/users', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+// Example endpoint: get all users
+app.get('/users', async (req, res) => {
+    try {
+        const db = await connectDb();
+        const users = await db.collection('users').find({}).toArray();
+        res.json(users);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 // Example endpoint: get user by email
 app.get('/users/:email', async (req, res) => {
     try {
         const db = await connectDb();
-        const user = await db.collection('users').findOne({ email: req.params.email });
-        res.json(user || {});
+        const email = decodeURIComponent(req.params.email);
+        console.log('[DEBUG] Fetching user email:', email);
+
+        const user = await db.collection('users').findOne({ email: email });
+        console.log('[DEBUG] User found:', user);
+
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.json(user);
     } catch (err) {
+        console.error('[ERROR] MongoDB fetch failed:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
