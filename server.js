@@ -6,6 +6,7 @@ const usersRouter = require('./routes/users');
 const sellersRouter = require('./routes/sellers');
 const customersRouter = require('./routes/customers');
 const inventoriesRouter = require('./routes/inventory');
+const ordersRouter     = require('./routes/orders');
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ app.use('/users', usersRouter);
 app.use('/sellers', sellersRouter);
 app.use('/customers', customersRouter);
 app.use('/inventory', inventoriesRouter);
+app.use('/orders', ordersRouter);
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
