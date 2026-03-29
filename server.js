@@ -11,6 +11,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health check — must be before API key middleware so Render can reach it
+app.get('/', (req, res) => res.send('Middleware API running'));
+
 // API key check
 app.use((req, res, next) => {
     if (req.headers['x-api-key'] !== process.env.API_KEY) {
@@ -24,8 +27,6 @@ app.use('/users', usersRouter);
 app.use('/sellers', sellersRouter);
 app.use('/customers', customersRouter);
 app.use('/inventory', inventoriesRouter);
-
-app.get('/', (req, res) => res.send('Middleware API running'));
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
