@@ -1,2 +1,3 @@
 /venv
-.envdb_Test.py 
+.env
+db_Test.py 
