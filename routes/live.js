@@ -72,4 +72,19 @@ router.put('/:streamID/end', async (req, res) => {
     }
 });
 
+// GET /live/active-all — all currently live sessions (for channels page badges)
+router.get('/active-all', async (req, res) => {
+    try {
+        const db   = await connectDb();
+        const lives = await db.collection('live')
+            .find({ status: 'LiveNow' })
+            .project({ hostID: 1, streamID: 1, title: 1, _id: 0 })
+            .toArray();
+        res.json(lives);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 module.exports = router;

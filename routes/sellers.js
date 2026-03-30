@@ -7,7 +7,11 @@ router.get('/', async (req, res) => {
     try {
         const db = await connectDb();
         const sellers = await db.collection('sellers').find({}).toArray();
-        res.json(sellers.map(s => ({ ...s, _id: s._id.toString() })));
+        res.json(sellers.map(s => ({
+            ...s,
+            _id:      s._id.toString(),
+            sellerID: s.sellerID ? s.sellerID.toString() : '',
+        })));
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, error: err.message });
