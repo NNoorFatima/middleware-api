@@ -17,23 +17,21 @@ router.post('/', async (req, res) => {
         const count    = await db.collection('liveComments').countDocuments();
         const commentID = 'CM' + String(count + 1).padStart(3, '0');
 
-        const result = await db.collection('liveComments').insertOne({
+        await db.collection('liveComments').insertOne({
             commentID,
-            liveID,      // streamID of the live session this comment belongs to
-            userID,      // users._id of the commenter
+            liveID,      // = streamID of the live session this comment belongs to
+            userID,      // = users._id of the commenter
             content,
             timestamp: new Date(),
         });
 
-        const commentOid = result.insertedId.toString();
-
-        // Push comment _id into live.liveComments array
+        // Push commentID (primary key of liveComments) into live.liveComments array
         await db.collection('live').updateOne(
             { streamID: liveID },
-            { $push: { liveComments: commentOid } }
+            { $push: { liveComments: commentID } }
         );
 
-        res.json({ success: true, commentID, _id: commentOid });
+        res.json({ success: true, commentID });
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, error: err.message });
