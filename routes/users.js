@@ -2,7 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const connectDb = require('../db');
-const bcrypt = require('bcryptjs'); // for password hashing
+const bcrypt = require('bcryptjs');
+const { ObjectId } = require('mongodb');
 
 // GET all users
 router.get('/', async (req, res) => {
@@ -56,16 +57,19 @@ router.post('/', async (req, res) => {
         const userId = userResult.insertedId.toString();
 
         // Role-specific insert
+        // sellerID / customerID stored as ObjectId (ref to users._id)
         if (role === 'seller') {
             await db.collection('sellers').insertOne({
-                sellerID: userId,
+                sellerID: userResult.insertedId,   // ObjectId ref to users._id
                 shopName: shop_name || '',
+                address: address || '',
+                contactInfo: contact_info || '',
                 inventory: null,
                 ordersHandled: []
             });
         } else {
             await db.collection('customers').insertOne({
-                customerID: userId,
+                customerID: userResult.insertedId, // ObjectId ref to users._id
                 address: address || '',
                 contactInfo: contact_info || '',
                 orderHistory: [],
@@ -88,7 +92,7 @@ router.put('/:id', async (req, res) => {
         const updateData = req.body;
 
         const result = await db.collection('users').updateOne(
-            { _id: require('mongodb').ObjectId(userId) },
+            { _id: new ObjectId(userId) },
             { $set: updateData }
         );
 
@@ -105,10 +109,10 @@ router.delete('/:id', async (req, res) => {
         const db = await connectDb();
         const userId = req.params.id;
 
-        await db.collection('users').deleteOne({ _id: require('mongodb').ObjectId(userId) });
-        // Optional: delete from sellers/customers
-        await db.collection('sellers').deleteOne({ sellerID: userId });
-        await db.collection('customers').deleteOne({ customerID: userId });
+        const userOid = new ObjectId(userId);
+        await db.collection('users').deleteOne({ _id: userOid });
+        await db.collection('sellers').deleteOne({ sellerID: userOid });
+        await db.collection('customers').deleteOne({ customerID: userOid });
 
         res.json({ success: true });
     } catch (err) {

@@ -45,17 +45,15 @@ router.get('/seller/:userMongoId', async (req, res) => {
                         _id: order.customerID  // already an ObjectId ref
                     });
                     if (customer && customer.customerID) {
+                        // customerID is now stored as ObjectId ref to users._id
+                        // ObjectId constructor accepts an existing ObjectId too
                         let user = null;
                         try {
-                            user = await db.collection('users').findOne({
-                                _id: new ObjectId(customer.customerID)
-                            });
+                            const uid = customer.customerID instanceof Object
+                                ? customer.customerID                      // already ObjectId
+                                : new ObjectId(customer.customerID);       // legacy string
+                            user = await db.collection('users').findOne({ _id: uid });
                         } catch(e) {}
-                        if (!user) {
-                            user = await db.collection('users').findOne({
-                                _id: customer.customerID
-                            });
-                        }
                         if (user) customerName = user.name;
                     }
                 }
