@@ -65,15 +65,16 @@ router.get('/customer/:userMongoId', async (req, res) => {
 });
 
 // POST /payments — create a payment record
-// body: { orderID, sellerUserMongoId, customerUserMongoId, amount, transactionRef, status }
+// body: { orderID, sellerUserMongoId, customerUserMongoId, amount, transactionRef, paymentStatus }
+// paymentStatus values: 'Pending' | 'Completed' | 'Failed'
 router.post('/', async (req, res) => {
     try {
         const db = await connectDb();
-        const { orderID, sellerUserMongoId, customerUserMongoId, amount, transactionRef, status } = req.body;
+        const { orderID, sellerUserMongoId, customerUserMongoId, amount, transactionRef, paymentStatus } = req.body;
 
-        const allowed = ['pending', 'completed', 'failed'];
-        if (!allowed.includes(status)) {
-            return res.status(400).json({ success: false, error: 'status must be pending, completed, or failed' });
+        const allowed = ['Pending', 'Completed', 'Failed'];
+        if (!allowed.includes(paymentStatus)) {
+            return res.status(400).json({ success: false, error: 'paymentStatus must be Pending, Completed, or Failed' });
         }
 
         const seller   = await findSellerByUserId(db, sellerUserMongoId);
@@ -81,11 +82,11 @@ router.post('/', async (req, res) => {
 
         const result = await db.collection('payments').insertOne({
             orderID:        orderID || '',
-            sellerID:       seller   ? seller._id   : null,  // ObjectId ref to sellers._id
-            customerID:     customer ? customer._id : null,  // ObjectId ref to customers._id
+            sellerID:       seller   ? seller._id   : null,
+            customerID:     customer ? customer._id : null,
             amount:         parseFloat(amount) || 0,
             transactionRef: transactionRef || '',
-            status,
+            paymentStatus,
             createdAt: new Date(),
         });
 
@@ -100,14 +101,14 @@ router.post('/', async (req, res) => {
 router.put('/:id/status', async (req, res) => {
     try {
         const db = await connectDb();
-        const { status } = req.body;
-        const allowed = ['pending', 'completed', 'failed'];
-        if (!allowed.includes(status)) {
-            return res.status(400).json({ success: false, error: 'Invalid status' });
+        const { paymentStatus } = req.body;
+        const allowed = ['Pending', 'Completed', 'Failed'];
+        if (!allowed.includes(paymentStatus)) {
+            return res.status(400).json({ success: false, error: 'paymentStatus must be Pending, Completed, or Failed' });
         }
         const result = await db.collection('payments').updateOne(
             { _id: new ObjectId(req.params.id) },
-            { $set: { status } }
+            { $set: { paymentStatus } }
         );
         res.json({ success: true, modifiedCount: result.modifiedCount });
     } catch (err) {
