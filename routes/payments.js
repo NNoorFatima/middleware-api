@@ -5,33 +5,43 @@ const { ObjectId } = require('mongodb');
 
 const serialize = (p) => ({
     ...p,
-    _id:       p._id.toString(),
-    sellerID:  p.sellerID?.toString()  ?? '',
-    customerID:p.customerID?.toString() ?? '',
+    _id: p._id.toString(),
 });
 
-// GET /payments/seller/:sellersId
-// sellersId = sellers._id — direct match against payments.sellerID
-router.get('/seller/:sellersId', async (req, res) => {
+// GET /payments/seller/:userMongoId
+// userMongoId = users._id (aiva_mongo_id from WordPress)
+// Chain: users._id → sellers.sellerID → sellers._id → orders.sellerID → orderIDs → payments.orderID
+router.get('/seller/:userMongoId', async (req, res) => {
     try {
         const db  = await connectDb();
-        const sid = req.params.sellersId;
+        const uid = req.params.userMongoId;
 
-        let payments = [];
-        try {
-            payments = await db.collection('payments')
-                .find({ sellerID: new ObjectId(sid) })
-                .sort({ createdAt: -1 })
-                .toArray();
-        } catch (e) {}
+        // Step 1: find seller whose sellerID = users._id
+        let seller = null;
+        try { seller = await db.collection('sellers').findOne({ sellerID: new ObjectId(uid) }); } catch (e) {}
+        if (!seller) seller = await db.collection('sellers').findOne({ sellerID: uid });
+        if (!seller) return res.json([]);
 
-        // String fallback
-        if (!payments.length) {
-            payments = await db.collection('payments')
-                .find({ sellerID: sid })
-                .sort({ createdAt: -1 })
+        // Step 2: find all orders for this seller (try ObjectId then string for sellerID)
+        let orders = await db.collection('orders')
+            .find({ sellerID: seller._id }, { projection: { _id: 1 } })
+            .toArray();
+        if (!orders.length) {
+            orders = await db.collection('orders')
+                .find({ sellerID: seller._id.toString() }, { projection: { _id: 1 } })
                 .toArray();
         }
+        if (!orders.length) return res.json([]);
+
+        // Step 3: find payments whose orderID matches (try both string and ObjectId)
+        const orderIdStrings = orders.map(o => o._id.toString());
+        let orderIdObjects = [];
+        try { orderIdObjects = orders.map(o => new ObjectId(o._id)); } catch (e) {}
+
+        const payments = await db.collection('payments')
+            .find({ orderID: { $in: [...orderIdStrings, ...orderIdObjects] } })
+            .sort({ createdAt: -1 })
+            .toArray();
 
         res.json(payments.map(serialize));
     } catch (err) {
@@ -40,27 +50,40 @@ router.get('/seller/:sellersId', async (req, res) => {
     }
 });
 
-// GET /payments/customer/:customersId
-// customersId = customers._id — direct match against payments.customerID
-router.get('/customer/:customersId', async (req, res) => {
+// GET /payments/customer/:userMongoId
+// userMongoId = users._id (aiva_mongo_id from WordPress)
+// Chain: users._id → customers.customerID → customers._id → orders.customerID → orderIDs → payments.orderID
+router.get('/customer/:userMongoId', async (req, res) => {
     try {
         const db  = await connectDb();
-        const cid = req.params.customersId;
+        const uid = req.params.userMongoId;
 
-        let payments = [];
-        try {
-            payments = await db.collection('payments')
-                .find({ customerID: new ObjectId(cid) })
-                .sort({ createdAt: -1 })
-                .toArray();
-        } catch (e) {}
+        // Step 1: find customer whose customerID = users._id
+        let customer = null;
+        try { customer = await db.collection('customers').findOne({ customerID: new ObjectId(uid) }); } catch (e) {}
+        if (!customer) customer = await db.collection('customers').findOne({ customerID: uid });
+        if (!customer) return res.json([]);
 
-        if (!payments.length) {
-            payments = await db.collection('payments')
-                .find({ customerID: cid })
-                .sort({ createdAt: -1 })
+        // Step 2: find all orders for this customer
+        let orders = await db.collection('orders')
+            .find({ customerID: customer._id }, { projection: { _id: 1 } })
+            .toArray();
+        if (!orders.length) {
+            orders = await db.collection('orders')
+                .find({ customerID: customer._id.toString() }, { projection: { _id: 1 } })
                 .toArray();
         }
+        if (!orders.length) return res.json([]);
+
+        // Step 3: find payments whose orderID matches
+        const orderIdStrings = orders.map(o => o._id.toString());
+        let orderIdObjects = [];
+        try { orderIdObjects = orders.map(o => new ObjectId(o._id)); } catch (e) {}
+
+        const payments = await db.collection('payments')
+            .find({ orderID: { $in: [...orderIdStrings, ...orderIdObjects] } })
+            .sort({ createdAt: -1 })
+            .toArray();
 
         res.json(payments.map(serialize));
     } catch (err) {
@@ -70,27 +93,18 @@ router.get('/customer/:customersId', async (req, res) => {
 });
 
 // POST /payments
-// body: { orderID, sellerID, customerID, amount, transactionRef, paymentStatus }
-// paymentStatus: 'Pending' | 'Completed' | 'Failed'
 router.post('/', async (req, res) => {
     try {
         const db = await connectDb();
-        const { orderID, sellerID, customerID, amount, transactionRef, paymentStatus } = req.body;
+        const { orderID, amount, transactionRef, paymentStatus } = req.body;
 
         const allowed = ['Pending', 'Completed', 'Failed'];
         if (!allowed.includes(paymentStatus)) {
             return res.status(400).json({ success: false, error: 'paymentStatus must be Pending, Completed, or Failed' });
         }
 
-        let sellerOid   = null;
-        let customerOid = null;
-        try { sellerOid   = new ObjectId(sellerID);   } catch (e) {}
-        try { customerOid = new ObjectId(customerID); } catch (e) {}
-
         const result = await db.collection('payments').insertOne({
             orderID:        orderID || '',
-            sellerID:       sellerOid   || sellerID   || null,
-            customerID:     customerOid || customerID || null,
             amount:         parseFloat(amount) || 0,
             transactionRef: transactionRef || '',
             paymentStatus,
