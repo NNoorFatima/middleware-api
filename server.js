@@ -10,6 +10,7 @@ const ordersRouter       = require('./routes/orders');
 const liveRouter         = require('./routes/live');
 const liveCommentsRouter = require('./routes/live-comments');
 const agoraTokenRouter   = require('./routes/agora-token');
+const paymentsRouter     = require('./routes/payments');
 
 const app = express();
 app.use(cors());
@@ -35,6 +36,7 @@ app.use('/orders', ordersRouter);
 app.use('/live', liveRouter);
 app.use('/live-comments', liveCommentsRouter);
 app.use('/agora-token', agoraTokenRouter);
+app.use('/payments',   paymentsRouter);
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
