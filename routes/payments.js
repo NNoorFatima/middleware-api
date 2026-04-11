@@ -119,8 +119,8 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /payments/verify-and-update
-// Resolves customer+seller → orders → payments, matches chatAmount (floor),
-// updates paymentStatus based on VisPay result (APPROVED→Completed, REJECTED→Failed, MANUAL REVIEW→Pending).
+// PUT /payments/verify-and-update
+// Path: customer.orderHistory → orders._id → payments.orderID → match amount → update status
 router.put('/verify-and-update', async (req, res) => {
     try {
         const db = await connectDb();
@@ -130,55 +130,53 @@ router.put('/verify-and-update', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
 
-        // Resolve customer — use customerID field (= users._id), not _id
+        // Step 1: find customer via customerID field (= users._id)
         let customer = null;
         try { customer = await db.collection('customers').findOne({ customerID: new ObjectId(customerUserMongoId) }); } catch (e) {}
         if (!customer) customer = await db.collection('customers').findOne({ customerID: customerUserMongoId });
         if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
-        // Resolve seller — use sellerID field (= users._id), not _id
+        // Step 2: find seller via sellerID field (= users._id)
         let seller = null;
         try { seller = await db.collection('sellers').findOne({ sellerID: new ObjectId(sellerUserMongoId) }); } catch (e) {}
         if (!seller) seller = await db.collection('sellers').findOne({ sellerID: sellerUserMongoId });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller not found' });
 
-        // orders.customerID = customers.customerID (users._id), orders.sellerID = sellers.sellerID (users._id)
-        let orders = await db.collection('orders')
-            .find({ customerID: customer.customerID, sellerID: seller.sellerID })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        // Fallback: string versions in case stored differently
-        if (!orders.length) {
-            orders = await db.collection('orders')
-                .find({ customerID: customer.customerID.toString(), sellerID: seller.sellerID.toString() })
-                .sort({ createdAt: -1 })
-                .toArray();
+        const orderHistory = customer.orderHistory || [];
+        if (!orderHistory.length) {
+            return res.status(404).json({ success: false, error: 'No order history found for this customer' });
         }
 
-        if (!orders.length) {
-            return res.status(404).json({ success: false, error: 'No orders found for this customer and seller' });
-        }
-
-        const statusMap = { 'APPROVED': 'Completed', 'REJECTED': 'Failed', 'MANUAL REVIEW': 'Pending' };
-        const newStatus  = statusMap[visPayStatus] || 'Pending';
+        const statusMap     = { 'APPROVED': 'Completed', 'REJECTED': 'Failed', 'MANUAL REVIEW': 'Pending' };
+        const newStatus     = statusMap[visPayStatus] || 'Pending';
         const expectedFloor = Math.floor(parseFloat(chatAmount));
+        const sellerIdStr   = seller.sellerID.toString();
 
-        for (const order of orders) {
-            const orderIdStr = order._id.toString();
+        // Step 3: walk orderHistory in reverse (most recent last → try last first)
+        for (const orderIdRaw of [...orderHistory].reverse()) {
+            const orderIdStr = orderIdRaw.toString();
+
+            // Step 4: fetch the order and confirm it belongs to this seller
+            let order = null;
+            try { order = await db.collection('orders').findOne({ _id: new ObjectId(orderIdStr) }); } catch (e) {}
+            if (!order) continue;
+            if (order.sellerID.toString() !== sellerIdStr) continue;
+
+            // Step 5: find payment where payments.orderID = this orderID (stored as string)
             const payment = await db.collection('payments').findOne({
-                $or: [{ orderID: orderIdStr }, { orderID: order._id }]
+                $or: [{ orderID: orderIdStr }, { orderID: new ObjectId(orderIdStr) }]
             });
             if (!payment) continue;
 
+            // Step 6: match amount
             if (Math.floor(parseFloat(payment.amount)) === expectedFloor) {
                 await db.collection('payments').updateOne(
                     { _id: payment._id },
                     { $set: { paymentStatus: newStatus } }
                 );
                 return res.json({
-                    success: true,
-                    paymentId: payment._id.toString(),
+                    success:       true,
+                    paymentId:     payment._id.toString(),
                     newStatus,
                     matchedAmount: payment.amount,
                 });
