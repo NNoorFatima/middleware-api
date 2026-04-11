@@ -118,6 +118,75 @@ router.post('/', async (req, res) => {
     }
 });
 
+// PUT /payments/verify-and-update
+// Resolves customer+seller → orders → payments, matches chatAmount (floor),
+// updates paymentStatus based on VisPay result (APPROVED→Completed, REJECTED→Failed, MANUAL REVIEW→Pending).
+router.put('/verify-and-update', async (req, res) => {
+    try {
+        const db = await connectDb();
+        const { customerUserMongoId, sellerUserMongoId, chatAmount, visPayStatus } = req.body;
+
+        if (!customerUserMongoId || !sellerUserMongoId || chatAmount == null || !visPayStatus) {
+            return res.status(400).json({ success: false, error: 'Missing required fields' });
+        }
+
+        // Resolve customer
+        let customer = null;
+        try { customer = await db.collection('customers').findOne({ customerID: new ObjectId(customerUserMongoId) }); } catch (e) {}
+        if (!customer) customer = await db.collection('customers').findOne({ customerID: customerUserMongoId });
+        if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+        // Resolve seller
+        let seller = null;
+        try { seller = await db.collection('sellers').findOne({ sellerID: new ObjectId(sellerUserMongoId) }); } catch (e) {}
+        if (!seller) seller = await db.collection('sellers').findOne({ sellerID: sellerUserMongoId });
+        if (!seller) return res.status(404).json({ success: false, error: 'Seller not found' });
+
+        // Orders for this customer + seller, most recent first
+        const orders = await db.collection('orders')
+            .find({ customerID: customer._id, sellerID: seller._id })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        if (!orders.length) {
+            return res.status(404).json({ success: false, error: 'No orders found for this customer and seller' });
+        }
+
+        const statusMap = { 'APPROVED': 'Completed', 'REJECTED': 'Failed', 'MANUAL REVIEW': 'Pending' };
+        const newStatus  = statusMap[visPayStatus] || 'Pending';
+        const expectedFloor = Math.floor(parseFloat(chatAmount));
+
+        for (const order of orders) {
+            const orderIdStr = order._id.toString();
+            const payment = await db.collection('payments').findOne({
+                $or: [{ orderID: orderIdStr }, { orderID: order._id }]
+            });
+            if (!payment) continue;
+
+            if (Math.floor(parseFloat(payment.amount)) === expectedFloor) {
+                await db.collection('payments').updateOne(
+                    { _id: payment._id },
+                    { $set: { paymentStatus: newStatus } }
+                );
+                return res.json({
+                    success: true,
+                    paymentId: payment._id.toString(),
+                    newStatus,
+                    matchedAmount: payment.amount,
+                });
+            }
+        }
+
+        return res.status(404).json({
+            success: false,
+            error: `No payment found matching amount Rs.${chatAmount} for this customer and seller`,
+        });
+    } catch (err) {
+        console.error('[verify-and-update]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // PUT /payments/:id/status
 router.put('/:id/status', async (req, res) => {
     try {
