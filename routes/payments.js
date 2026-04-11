@@ -143,6 +143,7 @@ router.put('/verify-and-update', async (req, res) => {
         if (!seller) return res.status(404).json({ success: false, error: 'Seller not found' });
 
         const orderHistory = customer.orderHistory || [];
+        console.log('[verify-and-update] orderHistory:', orderHistory);
         if (!orderHistory.length) {
             return res.status(404).json({ success: false, error: 'No order history found for this customer' });
         }
@@ -151,24 +152,26 @@ router.put('/verify-and-update', async (req, res) => {
         const newStatus     = statusMap[visPayStatus] || 'Pending';
         const expectedFloor = Math.floor(parseFloat(chatAmount));
         const sellerIdStr   = seller.sellerID.toString();
+        console.log('[verify-and-update] expectedFloor:', expectedFloor, '| sellerIdStr:', sellerIdStr);
 
-        // Step 3: walk orderHistory in reverse (most recent last → try last first)
         for (const orderIdRaw of [...orderHistory].reverse()) {
             const orderIdStr = orderIdRaw.toString();
+            console.log('[verify-and-update] checking orderID:', orderIdStr);
 
-            // Step 4: fetch the order and confirm it belongs to this seller
             let order = null;
-            try { order = await db.collection('orders').findOne({ _id: new ObjectId(orderIdStr) }); } catch (e) {}
-            if (!order) continue;
-            if (order.sellerID.toString() !== sellerIdStr) continue;
+            try { order = await db.collection('orders').findOne({ _id: new ObjectId(orderIdStr) }); } catch (e) {
+                console.log('[verify-and-update] order lookup error:', e.message);
+            }
+            if (!order) { console.log('[verify-and-update] order not found'); continue; }
+            console.log('[verify-and-update] order.sellerID:', order.sellerID.toString());
+            if (order.sellerID.toString() !== sellerIdStr) { console.log('[verify-and-update] sellerID mismatch'); continue; }
 
-            // Step 5: find payment where payments.orderID = this orderID (stored as string)
             const payment = await db.collection('payments').findOne({
                 $or: [{ orderID: orderIdStr }, { orderID: new ObjectId(orderIdStr) }]
             });
-            if (!payment) continue;
+            if (!payment) { console.log('[verify-and-update] payment not found for orderID:', orderIdStr); continue; }
+            console.log('[verify-and-update] payment.amount:', payment.amount, '| floor:', Math.floor(parseFloat(payment.amount)));
 
-            // Step 6: match amount
             if (Math.floor(parseFloat(payment.amount)) === expectedFloor) {
                 await db.collection('payments').updateOne(
                     { _id: payment._id },
@@ -181,6 +184,7 @@ router.put('/verify-and-update', async (req, res) => {
                     matchedAmount: payment.amount,
                 });
             }
+            console.log('[verify-and-update] amount mismatch:', Math.floor(parseFloat(payment.amount)), '!==', expectedFloor);
         }
 
         return res.status(404).json({
