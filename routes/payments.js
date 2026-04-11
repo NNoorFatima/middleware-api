@@ -167,28 +167,28 @@ router.put('/verify-and-update', async (req, res) => {
             entry.expectedSellerID = sellerIdStr;
             if (order.sellerID.toString() !== sellerIdStr) { entry.step = 'sellerID mismatch'; trace.push(entry); continue; }
 
-            const payment = await db.collection('payments').findOne({
+            const payments = await db.collection('payments').find({
                 $or: [{ orderID: orderIdStr }, { orderID: new ObjectId(orderIdStr) }]
-            });
-            if (!payment) { entry.step = 'payment not found'; trace.push(entry); continue; }
+            }).toArray();
+            if (!payments.length) { entry.step = 'payment not found'; trace.push(entry); continue; }
 
-            entry.paymentAmount      = payment.amount;
-            entry.paymentAmountFloor = Math.floor(parseFloat(payment.amount));
-            entry.expectedFloor      = expectedFloor;
+            entry.paymentsFound = payments.map(p => ({ id: p._id.toString(), amount: p.amount }));
+            entry.expectedFloor = expectedFloor;
 
-            if (Math.floor(parseFloat(payment.amount)) === expectedFloor) {
+            const matched = payments.find(p => Math.floor(parseFloat(p.amount)) === expectedFloor);
+            if (matched) {
                 await db.collection('payments').updateOne(
-                    { _id: payment._id },
+                    { _id: matched._id },
                     { $set: { paymentStatus: newStatus } }
                 );
                 return res.json({
                     success:       true,
-                    paymentId:     payment._id.toString(),
+                    paymentId:     matched._id.toString(),
                     newStatus,
-                    matchedAmount: payment.amount,
+                    matchedAmount: matched.amount,
                 });
             }
-            entry.step = 'amount mismatch'; trace.push(entry);
+            entry.step = 'amount mismatch in all payments'; trace.push(entry);
         }
 
         return res.status(404).json({
