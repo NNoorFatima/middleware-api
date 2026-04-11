@@ -130,23 +130,31 @@ router.put('/verify-and-update', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
 
-        // Resolve customer
+        // Resolve customer — use customerID field (= users._id), not _id
         let customer = null;
         try { customer = await db.collection('customers').findOne({ customerID: new ObjectId(customerUserMongoId) }); } catch (e) {}
         if (!customer) customer = await db.collection('customers').findOne({ customerID: customerUserMongoId });
         if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
-        // Resolve seller
+        // Resolve seller — use sellerID field (= users._id), not _id
         let seller = null;
         try { seller = await db.collection('sellers').findOne({ sellerID: new ObjectId(sellerUserMongoId) }); } catch (e) {}
         if (!seller) seller = await db.collection('sellers').findOne({ sellerID: sellerUserMongoId });
         if (!seller) return res.status(404).json({ success: false, error: 'Seller not found' });
 
-        // Orders for this customer + seller, most recent first
-        const orders = await db.collection('orders')
-            .find({ customerID: customer._id, sellerID: seller._id })
+        // orders.customerID = customers.customerID (users._id), orders.sellerID = sellers.sellerID (users._id)
+        let orders = await db.collection('orders')
+            .find({ customerID: customer.customerID, sellerID: seller.sellerID })
             .sort({ createdAt: -1 })
             .toArray();
+
+        // Fallback: string versions in case stored differently
+        if (!orders.length) {
+            orders = await db.collection('orders')
+                .find({ customerID: customer.customerID.toString(), sellerID: seller.sellerID.toString() })
+                .sort({ createdAt: -1 })
+                .toArray();
+        }
 
         if (!orders.length) {
             return res.status(404).json({ success: false, error: 'No orders found for this customer and seller' });
