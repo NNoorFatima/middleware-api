@@ -26,14 +26,19 @@ router.get('/seller/:userMongoId', async (req, res) => {
 
         if (!seller) return res.json([]);
 
-        // Step 2: fetch orders where sellerID = seller._id (ObjectId)
-        const filter = { sellerID: seller._id };
-        if (req.query.status) filter.status = req.query.status;
-
-        const orders = await db.collection('orders')
-            .find(filter)
+        // Step 2: fetch orders where sellerID = seller.sellerID (= users._id, not sellers._id)
+        // Try ObjectId first, then string fallback
+        let orders = await db.collection('orders')
+            .find({ sellerID: seller.sellerID, ...(req.query.status ? { status: req.query.status } : {}) })
             .sort({ createdAt: -1 })
             .toArray();
+
+        if (!orders.length) {
+            orders = await db.collection('orders')
+                .find({ sellerID: seller.sellerID.toString(), ...(req.query.status ? { status: req.query.status } : {}) })
+                .sort({ createdAt: -1 })
+                .toArray();
+        }
 
         // Step 3: populate customerName
         // orders.customerID → customers._id → customers.customerID → users._id → users.name

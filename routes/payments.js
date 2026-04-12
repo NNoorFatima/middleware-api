@@ -22,13 +22,13 @@ router.get('/seller/:userMongoId', async (req, res) => {
         if (!seller) seller = await db.collection('sellers').findOne({ sellerID: uid });
         if (!seller) return res.json([]);
 
-        // Step 2: find all orders for this seller (try ObjectId then string for sellerID)
+        // Step 2: find all orders for this seller using seller.sellerID (= users._id, not seller._id)
         let orders = await db.collection('orders')
-            .find({ sellerID: seller._id }, { projection: { _id: 1 } })
+            .find({ sellerID: seller.sellerID }, { projection: { _id: 1 } })
             .toArray();
         if (!orders.length) {
             orders = await db.collection('orders')
-                .find({ sellerID: seller._id.toString() }, { projection: { _id: 1 } })
+                .find({ sellerID: seller.sellerID.toString() }, { projection: { _id: 1 } })
                 .toArray();
         }
         if (!orders.length) return res.json([]);
@@ -51,41 +51,49 @@ router.get('/seller/:userMongoId', async (req, res) => {
 });
 
 // GET /payments/customer/:userMongoId
-// userMongoId = users._id (aiva_mongo_id from WordPress)
-// Chain: users._id → customers.customerID → customers._id → orders.customerID → orderIDs → payments.orderID
+// Chain: customers.orderHistory → payments.orderID → orders.sellerID → sellers.shopName
 router.get('/customer/:userMongoId', async (req, res) => {
     try {
         const db  = await connectDb();
         const uid = req.params.userMongoId;
 
-        // Step 1: find customer whose customerID = users._id
+        // Find customer via customerID field (= users._id)
         let customer = null;
         try { customer = await db.collection('customers').findOne({ customerID: new ObjectId(uid) }); } catch (e) {}
         if (!customer) customer = await db.collection('customers').findOne({ customerID: uid });
         if (!customer) return res.json([]);
 
-        // Step 2: find all orders for this customer
-        let orders = await db.collection('orders')
-            .find({ customerID: customer._id }, { projection: { _id: 1 } })
-            .toArray();
-        if (!orders.length) {
-            orders = await db.collection('orders')
-                .find({ customerID: customer._id.toString() }, { projection: { _id: 1 } })
-                .toArray();
+        const orderHistory = customer.orderHistory || [];
+        if (!orderHistory.length) return res.json([]);
+
+        const results = [];
+        for (const orderIdRaw of orderHistory) {
+            const orderIdStr = orderIdRaw.toString();
+
+            // Find all payments for this order (multiple may exist)
+            let paymentQuery = { orderID: orderIdStr };
+            try { paymentQuery = { $or: [{ orderID: orderIdStr }, { orderID: new ObjectId(orderIdStr) }] }; } catch(e) {}
+            const orderPayments = await db.collection('payments').find(paymentQuery).toArray();
+            if (!orderPayments.length) continue;
+
+            // Find order to resolve seller → shopName
+            let shopName = 'Unknown';
+            try {
+                const order = await db.collection('orders').findOne({ _id: new ObjectId(orderIdStr) });
+                if (order && order.sellerID) {
+                    let seller = await db.collection('sellers').findOne({ sellerID: order.sellerID });
+                    if (!seller) seller = await db.collection('sellers').findOne({ sellerID: order.sellerID.toString() });
+                    if (seller) shopName = seller.shopName || 'Unknown';
+                }
+            } catch(e) {}
+
+            for (const p of orderPayments) {
+                results.push({ ...serialize(p), shopName });
+            }
         }
-        if (!orders.length) return res.json([]);
 
-        // Step 3: find payments whose orderID matches
-        const orderIdStrings = orders.map(o => o._id.toString());
-        let orderIdObjects = [];
-        try { orderIdObjects = orders.map(o => new ObjectId(o._id)); } catch (e) {}
-
-        const payments = await db.collection('payments')
-            .find({ orderID: { $in: [...orderIdStrings, ...orderIdObjects] } })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        res.json(payments.map(serialize));
+        results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        res.json(results);
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, error: err.message });
