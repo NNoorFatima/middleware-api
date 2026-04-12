@@ -41,26 +41,19 @@ router.get('/seller/:userMongoId', async (req, res) => {
         }
 
         // Step 3: populate customerName
-        // orders.customerID → customers._id → customers.customerID → users._id → users.name
+        // orders.customerID = users._id directly — query users collection straight
         const populated = await Promise.all(orders.map(async (order) => {
             let customerName = 'Unknown';
             try {
                 if (order.customerID) {
-                    const customer = await db.collection('customers').findOne({
-                        _id: order.customerID  // already an ObjectId ref
-                    });
-                    if (customer && customer.customerID) {
-                        // customerID is now stored as ObjectId ref to users._id
-                        // ObjectId constructor accepts an existing ObjectId too
-                        let user = null;
-                        try {
-                            const uid = customer.customerID instanceof Object
-                                ? customer.customerID                      // already ObjectId
-                                : new ObjectId(customer.customerID);       // legacy string
-                            user = await db.collection('users').findOne({ _id: uid });
-                        } catch(e) {}
-                        if (user) customerName = user.name;
-                    }
+                    let user = null;
+                    try {
+                        const uid = order.customerID instanceof Object
+                            ? order.customerID
+                            : new ObjectId(order.customerID.toString());
+                        user = await db.collection('users').findOne({ _id: uid });
+                    } catch(e) {}
+                    if (user) customerName = user.name;
                 }
             } catch (e) { /* leave as Unknown */ }
 
@@ -79,7 +72,7 @@ router.put('/:orderID/status', async (req, res) => {
     try {
         const db = await connectDb();
         const { status } = req.body;
-        const allowed = ['Pending', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+        const allowed = ['Pending', 'Confirmed', 'Cancelled'];
 
         if (!allowed.includes(status)) {
             return res.status(400).json({ success: false, error: 'Invalid status' });
