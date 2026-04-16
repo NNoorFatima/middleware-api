@@ -17,7 +17,7 @@ async function findSellerByUserId(db, userMongoId) {
 
 // POST /inventory
 // body: { sellerID: "<users._id string>", products: [...] }
-// inventory.sellerID = sellers._id (ObjectId)
+// inventory.sellerID = sellers.sellerID = users._id
 // sellers.inventory  = inventory._id (ObjectId)
 router.post('/', async (req, res) => {
     try {
@@ -48,8 +48,8 @@ router.post('/', async (req, res) => {
             createdAt:     now,
         }));
 
-        // Check if seller already has an inventory (match by sellers._id)
-        const existing = await db.collection('inventory').findOne({ sellerID: seller._id });
+        // Check if seller already has an inventory (match by sellers.sellerID = users._id)
+        const existing = await db.collection('inventory').findOne({ sellerID: seller.sellerID });
 
         let inventoryID;
 
@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
             // No inventory yet — create one
             // inventory.sellerID = sellers._id (ObjectId)
             const invResult = await db.collection('inventory').insertOne({
-                sellerID: seller._id,   // ObjectId ref to sellers._id
+                sellerID: seller.sellerID,   // users._id (same as sellers.sellerID)
                 products: [],
                 createdAt: now,
             });
@@ -110,8 +110,8 @@ router.get('/:sellerID', async (req, res) => {
         const seller = await findSellerByUserId(db, req.params.sellerID);
         if (!seller) return res.status(404).json({ error: 'Seller not found' });
 
-        // Find inventory by sellers._id (ObjectId)
-        const inventory = await db.collection('inventory').findOne({ sellerID: seller._id });
+        // Find inventory by sellers.sellerID (= users._id)
+        const inventory = await db.collection('inventory').findOne({ sellerID: seller.sellerID });
         if (!inventory) return res.status(404).json({ error: 'No inventory found for this seller' });
 
         // Fetch all products belonging to this inventory
