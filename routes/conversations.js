@@ -13,7 +13,16 @@ router.get('/:customerID/:sellerID', async (req, res) => {
             status:     'active',
         });
         if (!doc) return res.json(null);
-        res.json(doc);
+
+        // Check last 5 messages for a "pay" option (case-insensitive)
+        const messages  = Array.isArray(doc.messages) ? doc.messages : [];
+        const last5     = messages.slice(-5);
+        const hasPayment = last5.some(msg =>
+            Array.isArray(msg.options) &&
+            msg.options.some(opt => opt.toLowerCase().includes('pay'))
+        );
+
+        res.json({ ...doc, has_payment: hasPayment });
     } catch (err) {
         console.error('[conversations]', err);
         res.status(500).json({ error: err.message });
