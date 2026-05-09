@@ -58,6 +58,7 @@ router.post('/', async (req, res) => {
 
         // Role-specific insert
         // sellerID / customerID stored as ObjectId (ref to users._id)
+        // Admins (and any future role) get no profile sub-doc.
         if (role === 'seller') {
             await db.collection('sellers').insertOne({
                 sellerID: userResult.insertedId,   // ObjectId ref to users._id
@@ -67,7 +68,7 @@ router.post('/', async (req, res) => {
                 inventory: null,
                 ordersHandled: []
             });
-        } else {
+        } else if (role === 'customer') {
             await db.collection('customers').insertOne({
                 customerID: userResult.insertedId, // ObjectId ref to users._id
                 address: address || '',
