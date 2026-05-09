@@ -12,6 +12,7 @@ const liveCommentsRouter = require('./routes/live-comments');
 const agoraTokenRouter   = require('./routes/agora-token');
 const paymentsRouter       = require('./routes/payments');
 const conversationsRouter  = require('./routes/conversations');
+const profileRequestsRouter = require('./routes/profile-requests');
 
 const app = express();
 app.use(cors());
@@ -39,6 +40,7 @@ app.use('/live-comments', liveCommentsRouter);
 app.use('/agora-token', agoraTokenRouter);
 app.use('/payments',       paymentsRouter);
 app.use('/conversations',  conversationsRouter);
+app.use('/profile-requests', profileRequestsRouter);
 
 const port = process.env.PORT || 10000;
 app.listen(port, () => console.log(`Server running on port ${port}`));

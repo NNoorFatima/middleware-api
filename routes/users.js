@@ -114,6 +114,7 @@ router.delete('/:id', async (req, res) => {
         await db.collection('users').deleteOne({ _id: userOid });
         await db.collection('sellers').deleteOne({ sellerID: userOid });
         await db.collection('customers').deleteOne({ customerID: userOid });
+        await db.collection('profileRequests').deleteMany({ userID: userOid });
 
         res.json({ success: true });
     } catch (err) {
