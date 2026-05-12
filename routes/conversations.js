@@ -14,13 +14,17 @@ router.get('/:customerID/:sellerID', async (req, res) => {
         });
         if (!doc) return res.json(null);
 
-        // Check last 5 messages for a "pay" option (case-insensitive)
-        const messages  = Array.isArray(doc.messages) ? doc.messages : [];
-        const last5     = messages.slice(-5);
-        const hasPayment = last5.some(msg =>
-            Array.isArray(msg.options) &&
-            msg.options.some(opt => opt.toLowerCase().includes('pay'))
-        );
+        // Trigger VisPay when the chatbot marked the conversation as payment_confirmed,
+        // OR when any of the last 5 messages mention "payment" / "pay".
+        const messages = Array.isArray(doc.messages) ? doc.messages : [];
+        const last5    = messages.slice(-5);
+        const mentionsPayment = last5.some(msg => {
+            const content = typeof msg.content === 'string' ? msg.content : '';
+            const options = Array.isArray(msg.options) ? msg.options.join(' ') : '';
+            return /\bpay(ment)?\b/i.test(content + ' ' + options);
+        });
+
+        const hasPayment = doc.last_action === 'payment_confirmed' || mentionsPayment;
 
         res.json({ ...doc, has_payment: hasPayment });
     } catch (err) {
